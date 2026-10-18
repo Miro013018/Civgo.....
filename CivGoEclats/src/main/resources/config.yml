@@ -20,3 +20,6 @@ stock:
 starting-balance: 0
 currency-singular: "Éclat"
 currency-plural: "Éclats"
+
+# Objet qui représente un Éclat. AMETHYST_SHARD (violet) ou ECHO_SHARD (bleu sombre, impossible à confondre avec l'améthyste vanilla).
+item-material: ECHO_SHARD
