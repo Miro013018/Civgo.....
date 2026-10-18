@@ -43,8 +43,12 @@ zone:
   enabled: true
   radius: 100                       # blocs autour du centre
   effects: ["weakness:0", "darkness:0"]   # nom:niveau (ex : slowness:0, hunger:0, nausea:0, mining_fatigue:0)
-  mobs: true                        # monstres supplémentaires et renforcés dans la zone
-  mobs-per-player: 4
+  mobs: true                        # monstres supplémentaires dans la zone
+  mobs-min: 6                       # monstres autour de chaque joueur au bord de la zone
+  mobs-max: 22                      # monstres autour de chaque joueur au centre du Cratère
+  global-cap: 150                   # maximum de monstres dans le monde (protège le serveur)
+  mob-health-multiplier: 4.0        # vie des monstres au centre (x4)
+  mob-damage-multiplier: 2.5        # dégâts des monstres au centre (x2.5)
   enter-title: "&5Le Cratère"
   enter-subtitle: "&7L'air vibre... tu n'es pas seul."
   leave-message: "&7Tu quittes le Cratère."
