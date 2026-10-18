@@ -13,17 +13,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Voir les fichiers du dépôt
+      - name: Fichiers du dépôt
         run: find . -not -path './.git/*' -type f | sort
       - name: Compiler chaque plugin
         run: |
-          found=0
-          for p in $(find . -name pom.xml -not -path './.git/*'); do
-            found=1
-            (cd "$(dirname "$p")" && mvn -B -q clean package)
+          fail=0
+          for p in $(find . -name pom.xml -not -path './.git/*' | sort); do
+            d=$(dirname "$p")
+            echo "=== Compilation de $d"
+            if (cd "$d" && mvn -B -q clean package); then echo "OK $d"; else echo "ECHEC $d"; fail=1; fi
           done
-          if [ "$found" = "0" ]; then echo "ERREUR : aucun fichier pom.xml dans le dépôt"; exit 1; fi
+          echo "=== Jars créés :"
+          find . -path '*/target/*' -name 'CivGo*.jar'
+          exit $fail
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: CivGo-jars
           path: '**/target/CivGo*.jar'
