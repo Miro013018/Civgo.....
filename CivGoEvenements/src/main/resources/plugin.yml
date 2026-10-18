@@ -1,0 +1,16 @@
+name: CivGoEvenements
+version: 1.0.0
+main: fr.civgo.evenements.CivGoEvenements
+api-version: '1.21'
+author: CivGo
+softdepend: [CivGoNoirs, CivGoEclats]
+description: Événements staff liés à l'intrigue (pulsation du Cratère, nuit exceptionnelle, pluie d'Éclats, chute de la Lune).
+commands:
+  civevent:
+    description: Lance un événement CivGo
+    usage: /civevent <pulsation|nuit|pluie|lune|dans> ...
+    permission: civgo.events.admin
+permissions:
+  civgo.events.admin:
+    description: Lancer les événements CivGo
+    default: op

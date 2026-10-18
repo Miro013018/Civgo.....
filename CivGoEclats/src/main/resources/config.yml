@@ -1,0 +1,22 @@
+# CivGo Éclats
+world: world
+
+# Cratère : seules les veines situées dans ce rayon (blocs, horizontal) donnent des Éclats
+crater:
+  x: 0
+  z: 0
+radius: 80
+
+# Bloc "veine d'Éclats" (BUDDING_AMETHYST ne drop rien normalement et n'est pas obtenable en survie)
+ore-material: BUDDING_AMETHYST
+
+# Stock mondial d'Éclats minables : limité, se régénère lentement (anti-inflation)
+stock:
+  start: 200
+  max: 500
+  regen-amount: 5
+  regen-interval-minutes: 10
+
+starting-balance: 0
+currency-singular: "Éclat"
+currency-plural: "Éclats"

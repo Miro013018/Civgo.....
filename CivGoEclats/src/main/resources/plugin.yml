@@ -1,0 +1,17 @@
+name: CivGoEclats
+version: 1.0.0
+main: fr.civgo.eclats.CivGoEclats
+api-version: '1.21'
+author: CivGo
+depend: [Vault]
+softdepend: [CivGoNoirs]
+description: Monnaie unique de CivGo - les Éclats du Cratère (stock limité, régénération lente).
+commands:
+  eclats:
+    description: Gère tes Éclats
+    usage: /eclats <solde|deposer|retirer|payer|admin>
+    aliases: [eclat]
+permissions:
+  civgo.eclats.admin:
+    description: Commandes d'administration des Éclats
+    default: op

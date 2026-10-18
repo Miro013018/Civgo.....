@@ -1,0 +1,24 @@
+# CivGo Événements
+world: world
+
+crater:
+  x: 0
+  y: 64
+  z: 0
+
+pulsation:
+  radius: 250          # joueurs touchés (blocs)
+  duration-seconds: 12
+  title: "&5&lLe Cratère pulse..."
+  subtitle: "&7Quelque chose se réveille."
+
+nuit-exceptionnelle:
+  minutes: 15          # lance /noir start <minutes> (plugin CivGoNoirs)
+
+pluie:
+  eclats: 60           # lance /eclats admin pluie <n> (plugin CivGoEclats)
+
+# Commande exécutée par la console pour relancer la chute de la Lune.
+# À adapter avec la vraie commande de ton plugin CivGo Cinematique (sans le "/").
+commands:
+  lune: "cinematique"

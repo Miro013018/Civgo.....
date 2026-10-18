@@ -1,0 +1,20 @@
+# CivGo Cicatrice
+
+# Cache le pseudo au-dessus des têtes (les joueurs se reconnaissent en faisant clic droit sur un joueur proche)
+hide-nametags: true
+
+# Supprime les messages "X a rejoint/quitté la partie" (ils révéleraient les pseudos)
+hide-join-messages: true
+
+# Format du chat (%1$s = nom RP, %2$s = message). Ignoré si ChatControl gère le chat.
+chat-format: "&f%1$s&7 » &f%2$s"
+
+# Distance maximale (blocs) pour reconnaître quelqu'un par clic droit
+recognize-distance: 6
+
+messages:
+  ask-title: "&5Qui es-tu ?"
+  ask-subtitle: "&7Écris ton nom RP dans le chat"
+  ask-chat: "&7Écris dans le chat le &fnom&7 que tu porteras dans CivGo (3 à 24 lettres, espaces, apostrophes et tirets autorisés)."
+  invalid: "&cNom invalide. Lettres, espaces, ' et - uniquement (3 à 24 caractères)."
+  taken: "&cCe nom est déjà porté par quelqu'un d'autre."
