@@ -1,0 +1,50 @@
+# CivGo Noirs
+world: world
+
+# Position du Cratère (centre du danger maximal)
+crater:
+  x: 0
+  y: 64
+  z: 0   # le plus simple : va au centre du Cratère et tape /noir setcrater
+
+# Rayon (en blocs) au-delà duquel le danger tombe à son minimum
+danger-radius: 1500
+# Danger minimal partout dans le monde (0.0 à 1.0)
+min-danger: 0.15
+
+auto:
+  enabled: true
+  min-interval-minutes: 40
+  max-interval-minutes: 120
+
+duration:
+  min-minutes: 4
+  max-minutes: 10
+
+storm: true            # orage pendant les Noirs (ciel plus sombre)
+darkness-effect: true  # effet Obscurité pour les joueurs
+mob-buffs: true        # mobs plus agressifs (vitesse, force...)
+
+extra-spawns:
+  enabled: true
+  max-per-player: 6
+  interval-seconds: 10
+
+messages:
+  title: "&5&lLES NOIRS"
+  subtitle: "&7Le ciel s'éteint..."
+  start: "&5Les Noirs s'abattent sur le monde. Restez groupés."
+  end: "&7Le ciel s'éclaircit. Les Noirs se retirent."
+  bossbar: "&5Les Noirs"
+  no-permission: "&cTu n'as pas la permission."
+
+# Zone du Cratère : dangereuse en permanence (même sans Noir)
+zone:
+  enabled: true
+  radius: 100                       # blocs autour du centre
+  effects: ["weakness:0", "darkness:0"]   # nom:niveau (ex : slowness:0, hunger:0, nausea:0, mining_fatigue:0)
+  mobs: true                        # monstres supplémentaires et renforcés dans la zone
+  mobs-per-player: 4
+  enter-title: "&5Le Cratère"
+  enter-subtitle: "&7L'air vibre... tu n'es pas seul."
+  leave-message: "&7Tu quittes le Cratère."

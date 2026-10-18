@@ -1,0 +1,14 @@
+name: CivGoNoirs
+version: 1.0.0
+main: fr.civgo.noirs.CivGoNoirs
+api-version: '1.21'
+author: CivGo
+description: Nuits imprévisibles (les Noirs) - plus on est près du Cratère, plus c'est dangereux.
+commands:
+  noir:
+    description: Gère les Noirs
+    usage: /noir [start [minutes]|stop|status]
+permissions:
+  civgo.noirs.admin:
+    description: Lancer et arrêter les Noirs
+    default: op

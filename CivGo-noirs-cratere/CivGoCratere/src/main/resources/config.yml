@@ -1,0 +1,10 @@
+# CivGo Cratère
+
+radius: 120          # rayon de la cuvette (blocs). Plus c'est grand, plus c'est long à générer.
+depth: 40            # hauteur totale du sommet du rebord jusqu'au fond
+rim-height: 10       # hauteur maximale du rebord au-dessus du terrain
+max-radius: 400      # limite de sécurité
+columns-per-tick: 120   # vitesse de génération (baisse à 60 si le serveur rame)
+
+# Magma et Larmes d'obsidienne au centre (le "coeur" de la Lune)
+center-magma: true
