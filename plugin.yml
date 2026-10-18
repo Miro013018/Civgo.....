@@ -1,0 +1,15 @@
+name: CivGoCratere
+version: 1.0.0
+main: fr.civgo.cratere.CivGoCratere
+api-version: '1.21'
+author: CivGo
+softdepend: [CivGoNoirs, CivGoEclats]
+description: Creuse le Cratère de la Lune Tombée dans le monde (cuvette, rebord, éjectas, Éclats).
+commands:
+  cratere:
+    description: Génère le Cratère
+    usage: /cratere <creer [rayon] [profondeur]|confirmer|stop|info>
+permissions:
+  civgo.cratere.admin:
+    description: Générer le Cratère
+    default: op
