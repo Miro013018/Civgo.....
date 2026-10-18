@@ -63,6 +63,8 @@ public class CivGoNoirs extends JavaPlugin implements Listener, TabExecutor {
         scheduleNext();
         // Un seul timer espacé (toutes les 5 secondes) : léger pour un petit hébergement
         loop = Bukkit.getScheduler().runTaskTimer(this, this::tick, 100L, 100L);
+        // Monstres du Cratère : toutes les 2 secondes (seulement si un joueur est dans la zone)
+        Bukkit.getScheduler().runTaskTimer(this, this::zoneMobTick, 60L, 40L);
     }
 
     @Override
@@ -153,26 +155,106 @@ public class CivGoNoirs extends JavaPlugin implements Listener, TabExecutor {
                 }
                 if (p.getGameMode() == GameMode.SURVIVAL || p.getGameMode() == GameMode.ADVENTURE) {
                     for (PotionEffect e : eff) p.addPotionEffect(e);
-                    if (getConfig().getBoolean("zone.mobs", true)) {
-                        int target = getConfig().getInt("zone.mobs-per-player", 4);
-                        int near = 0;
-                        for (Entity en : p.getNearbyEntities(32, 20, 32)) {
-                            if (en instanceof Monster) near++;
-                        }
-                        if (near < target) {
-                            Location spot = randomSpot(w, p.getLocation());
-                            if (spot != null) {
-                                EntityType[] pool = {EntityType.SPIDER, EntityType.CREEPER, EntityType.WITCH, EntityType.HUSK, EntityType.VINDICATOR};
-                                w.spawnEntity(spot, pool[rnd.nextInt(pool.length)]);
-                            }
-                        }
-                    }
                 }
             } else if (inZone.remove(id)) {
                 p.sendMessage(color(getConfig().getString("zone.leave-message", "&7Tu quittes le Cratère.")));
             }
         }
         inZone.removeIf(id -> Bukkit.getPlayer(id) == null);
+    }
+
+    /** 0 au bord de la zone du Cratère, 1 au centre. */
+    public double zoneK(Location l) {
+        double radius = Math.max(1.0, getConfig().getDouble("zone.radius", 100));
+        return Math.max(0.0, Math.min(1.0, 1.0 - craterDistance(l) / radius));
+    }
+
+    private boolean inZoneAt(Location l) {
+        return getConfig().getBoolean("zone.enabled", true)
+                && craterDistance(l) <= getConfig().getDouble("zone.radius", 100);
+    }
+
+    private org.bukkit.attribute.Attribute attr(String key) {
+        return org.bukkit.Registry.ATTRIBUTE.get(NamespacedKey.minecraft(key));
+    }
+
+    private void scaleAttr(LivingEntity m, String key, double factor) {
+        org.bukkit.attribute.Attribute a = attr(key);
+        if (a == null) return;
+        org.bukkit.attribute.AttributeInstance inst = m.getAttribute(a);
+        if (inst == null) return;
+        inst.setBaseValue(inst.getBaseValue() * factor);
+    }
+
+    /** Rend un monstre plus dangereux selon k (0 = faible, 1 = maximum). */
+    private void empower(LivingEntity m, double k, boolean zone) {
+        if (m.hasMetadata("civgo_empowered")) return;
+        m.setMetadata("civgo_empowered", new FixedMetadataValue(this, Boolean.TRUE));
+        int dur = 20 * 60 * 20;
+        m.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, dur, k > 0.66 ? 1 : 0, true, false));
+        if (k > 0.2) {
+            m.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, dur, k > 0.8 ? 2 : (k > 0.5 ? 1 : 0), true, false));
+        }
+        if (k > 0.4) {
+            m.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, dur, k > 0.8 ? 1 : 0, true, false));
+        }
+        if (k > 0.75) {
+            m.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, dur, 0, true, false));
+        }
+        if (!zone) return;
+        // pas de combustion au soleil dans le Cratère
+        m.addPotionEffect(new PotionEffect(PotionEffectType.FIRE_RESISTANCE, dur, 0, true, false));
+        double hp = 1.0 + (getConfig().getDouble("zone.mob-health-multiplier", 4.0) - 1.0) * k;
+        double dmg = 1.0 + (getConfig().getDouble("zone.mob-damage-multiplier", 2.5) - 1.0) * k;
+        scaleAttr(m, "max_health", hp);
+        scaleAttr(m, "attack_damage", dmg);
+        scaleAttr(m, "follow_range", 1.0 + 0.6 * k);
+        org.bukkit.attribute.Attribute mh = attr("max_health");
+        if (mh != null && m.getAttribute(mh) != null) m.setHealth(m.getAttribute(mh).getValue());
+        if (m instanceof org.bukkit.entity.Creeper cr && k > 0.7) cr.setPowered(true);
+    }
+
+    private EntityType zoneType(double k) {
+        List<EntityType> pool = new ArrayList<>(List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER, EntityType.HUSK));
+        if (k > 0.3) {
+            pool.addAll(List.of(EntityType.CREEPER, EntityType.STRAY, EntityType.WITCH, EntityType.VINDICATOR, EntityType.CAVE_SPIDER));
+        }
+        if (k > 0.6) {
+            pool.addAll(List.of(EntityType.WITHER_SKELETON, EntityType.EVOKER, EntityType.PILLAGER, EntityType.WITHER_SKELETON));
+        }
+        if (k > 0.85 && rnd.nextInt(8) == 0) return EntityType.RAVAGER;
+        return pool.get(rnd.nextInt(pool.size()));
+    }
+
+    /** Plus on est près du centre, plus il y a de monstres (et plus ils sont variés et puissants). */
+    private void zoneMobTick() {
+        if (!getConfig().getBoolean("zone.enabled", true) || !getConfig().getBoolean("zone.mobs", true)) return;
+        World w = world();
+        if (w == null || w.getPlayers().isEmpty()) return;
+        int min = getConfig().getInt("zone.mobs-min", 6);
+        int max = Math.max(min, getConfig().getInt("zone.mobs-max", 22));
+        int cap = getConfig().getInt("zone.global-cap", 150);
+        int total = w.getEntitiesByClass(Monster.class).size();
+        for (Player p : w.getPlayers()) {
+            if (total >= cap) break;
+            if (p.getGameMode() != GameMode.SURVIVAL && p.getGameMode() != GameMode.ADVENTURE) continue;
+            Location pl = p.getLocation();
+            if (!inZoneAt(pl)) continue;
+            double k = zoneK(pl);
+            int target = (int) Math.round(min + k * (max - min));
+            int near = 0;
+            for (Entity en : p.getNearbyEntities(32, 24, 32)) {
+                if (en instanceof Monster) near++;
+            }
+            int burst = 1 + (int) Math.round(k * 3);
+            for (int i = 0; i < burst && near < target && total < cap; i++) {
+                Location spot = randomSpot(w, pl);
+                if (spot == null) continue;
+                w.spawnEntity(spot, zoneType(k));
+                near++;
+                total++;
+            }
+        }
     }
 
     public boolean isActive() {
@@ -283,21 +365,10 @@ public class CivGoNoirs extends JavaPlugin implements Listener, TabExecutor {
         if (!(e.getEntity() instanceof Monster)) return;
         World w = world();
         if (w == null || !e.getLocation().getWorld().equals(w)) return;
-        boolean inZ = getConfig().getBoolean("zone.enabled", true)
-                && craterDistance(e.getLocation()) <= getConfig().getDouble("zone.radius", 100);
+        boolean inZ = inZoneAt(e.getLocation());
         if (!active && !inZ) return;
-
-        LivingEntity m = e.getEntity();
-        double d = inZ ? 1.0 : danger(e.getLocation());
-        int dur = 20 * 60 * 20;
-        // Tous les monstres sont un peu plus rapides pendant un Noir
-        m.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, dur, d > 0.66 ? 1 : 0, true, false));
-        if (d > 0.33) {
-            m.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, dur, d > 0.66 ? 1 : 0, true, false));
-        }
-        if (d > 0.66) {
-            m.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, dur, 0, true, false));
-        }
+        double k = inZ ? Math.max(0.15, zoneK(e.getLocation())) : danger(e.getLocation());
+        empower(e.getEntity(), k, inZ);
     }
 
     private void extraSpawns(World w) {
