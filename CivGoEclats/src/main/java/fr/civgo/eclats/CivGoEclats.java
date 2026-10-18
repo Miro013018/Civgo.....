@@ -23,6 +23,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
@@ -34,6 +35,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -115,7 +117,9 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
     // ------------------------------------------------------------ items
 
     public ItemStack makeEclat(int amount) {
-        ItemStack it = new ItemStack(Material.AMETHYST_SHARD, amount);
+        Material base = Material.matchMaterial(getConfig().getString("item-material", "AMETHYST_SHARD"));
+        if (base == null) base = Material.AMETHYST_SHARD;
+        ItemStack it = new ItemStack(base, amount);
         ItemMeta m = it.getItemMeta();
         m.setDisplayName("§dÉclat");
         m.setLore(List.of("§7Un fragment arraché au Cratère.", "§8Monnaie de CivGo"));
@@ -126,7 +130,7 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
     }
 
     public boolean isEclat(ItemStack it) {
-        if (it == null || it.getType() != Material.AMETHYST_SHARD || !it.hasItemMeta()) return false;
+        if (it == null || !it.hasItemMeta()) return false;
         return it.getItemMeta().getPersistentDataContainer().has(key, PersistentDataType.BYTE);
     }
 
@@ -136,7 +140,11 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
     public void onBreak(BlockBreakEvent e) {
         Material ore = Material.matchMaterial(getConfig().getString("ore-material", "BUDDING_AMETHYST"));
         Block b = e.getBlock();
-        if (ore == null || b.getType() != ore) return;
+        Material type = b.getType();
+        boolean isOre = ore != null && type == ore;
+        // les cristaux qui poussent sur les veines donnent aussi des Éclats CivGo (et non des éclats d'améthyste vanilla)
+        int gain = isOre ? 1 : clusterYield(type);
+        if (gain < 0) return;
 
         Player p = e.getPlayer();
         World w = Bukkit.getWorld(worldName());
@@ -144,7 +152,7 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
 
         double[] cr = crater();
         double dist = Math.hypot(b.getX() + 0.5 - cr[0], b.getZ() + 0.5 - cr[1]);
-        double radius = getConfig().getDouble("radius", 80);
+        double radius = craterRadius();
         if (dist > radius) {
             if (p.hasPermission("civgo.eclats.admin")) {
                 bar(p, "§8[Éclats] Hors du Cratère : " + (int) dist + " blocs du centre (rayon " + (int) radius + ")");
@@ -156,14 +164,46 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
             return;
         }
 
-        e.setDropItems(false);
+        e.setDropItems(false);          // jamais d'éclat d'améthyste vanilla dans le Cratère
+        if (gain == 0) return;          // petits bourgeons : rien
         if (stock <= 0) {
             p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent("§8La veine est tarie... elle se reforme lentement."));
             return;
         }
-        stock--;
-        b.getWorld().dropItemNaturally(b.getLocation().add(0.5, 0.5, 0.5), makeEclat(1));
-        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent("§d+1 Éclat"));
+        int amount = Math.min(gain, stock);
+        stock -= amount;
+        b.getWorld().dropItemNaturally(b.getLocation().add(0.5, 0.5, 0.5), makeEclat(amount));
+        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent("§d+" + amount + (amount == 1 ? " Éclat" : " Éclats")));
+    }
+
+    /** Tout éclat d'améthyste vanilla qui tombe dans le Cratère devient un Éclat CivGo (dans la limite du stock). */
+    @EventHandler(ignoreCancelled = true)
+    public void onDrop(BlockDropItemEvent e) {
+        if (e.getPlayer().getGameMode() == GameMode.CREATIVE) return;
+        if (!inCrater(e.getBlock())) return;
+        Iterator<Item> it = e.getItems().iterator();
+        while (it.hasNext()) {
+            Item item = it.next();
+            ItemStack st = item.getItemStack();
+            if (st.getType() != Material.AMETHYST_SHARD || isEclat(st)) continue;
+            int n = Math.min(st.getAmount(), stock);
+            if (n <= 0) {
+                it.remove();
+            } else {
+                stock -= n;
+                item.setItemStack(makeEclat(n));
+            }
+        }
+    }
+
+    private int clusterYield(Material m) {
+        return switch (m) {
+            case AMETHYST_CLUSTER -> 3;
+            case LARGE_AMETHYST_BUD -> 2;
+            case MEDIUM_AMETHYST_BUD -> 1;
+            case SMALL_AMETHYST_BUD -> 0;
+            default -> -1;
+        };
     }
 
     // ------------------------------------------------------------ pluie d'Éclats
@@ -203,6 +243,21 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
             return new double[]{n.getConfig().getDouble("crater.x", 0), n.getConfig().getDouble("crater.z", 0)};
         }
         return new double[]{getConfig().getDouble("crater.x", 0), getConfig().getDouble("crater.z", 0)};
+    }
+
+    /** Rayon dans lequel les Éclats tombent : le plus grand entre le rayon d'Éclats et la zone du Cratère (CivGoNoirs). */
+    private double craterRadius() {
+        double r = getConfig().getDouble("radius", 80);
+        Plugin n = Bukkit.getPluginManager().getPlugin("CivGoNoirs");
+        if (n != null && n.isEnabled()) r = Math.max(r, n.getConfig().getDouble("zone.radius", 0));
+        return r;
+    }
+
+    private boolean inCrater(Block b) {
+        World w = Bukkit.getWorld(worldName());
+        if (w == null || !b.getWorld().equals(w)) return false;
+        double[] cr = crater();
+        return Math.hypot(b.getX() + 0.5 - cr[0], b.getZ() + 0.5 - cr[1]) <= craterRadius();
     }
 
     private String worldName() {
@@ -369,7 +424,8 @@ public class CivGoEclats extends JavaPlugin implements Listener, TabExecutor {
                 double[] cr = crater();
                 s.sendMessage(ChatColor.LIGHT_PURPLE + "Cratère : x=" + (int) cr[0] + " z=" + (int) cr[1] + " (monde " + worldName()
                         + "), rayon des veines : " + getConfig().getInt("radius", 80) + ". Stock : " + stock + " / " + getConfig().getInt("stock.max", 500)
-                        + ". Bloc de veine : " + getConfig().getString("ore-material", "BUDDING_AMETHYST") + ".");
+                        + ". Bloc de veine : " + getConfig().getString("ore-material", "BUDDING_AMETHYST") + ". Rayon utilisé : " + (int) craterRadius()
+                        + ". Objet Éclat : " + getConfig().getString("item-material", "AMETHYST_SHARD") + ".");
                 if (s instanceof Player pl) {
                     double dist = Math.hypot(pl.getLocation().getX() - cr[0], pl.getLocation().getZ() - cr[1]);
                     s.sendMessage(ChatColor.GRAY + "Tu es à " + (int) dist + " blocs du centre du Cratère.");
