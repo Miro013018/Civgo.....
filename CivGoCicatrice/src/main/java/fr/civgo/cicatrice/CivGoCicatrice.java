@@ -7,6 +7,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Color;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
@@ -15,6 +16,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.BlockDisplay;
+import org.bukkit.entity.Display;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -31,14 +34,19 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
+import org.joml.AxisAngle4f;
+import org.joml.Vector3f;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -78,6 +86,13 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
             Color.fromRGB(255, 140, 230), Color.fromRGB(150, 90, 230), Color.fromRGB(110, 50, 170)
     };
 
+    private static final String SCAR_TAG = "civgo_scar";
+    // taille de la marque lumineuse selon la forme (même ordre que SHAPES) : {largeur, hauteur, épaisseur} en blocs
+    private static final float[][] SIZES = {
+            {0.04f, 0.17f, 0.04f}, {0.11f, 0.11f, 0.04f}, {0.15f, 0.07f, 0.04f},
+            {0.10f, 0.10f, 0.04f}, {0.17f, 0.05f, 0.04f}, {0.06f, 0.17f, 0.04f}
+    };
+    private final Map<UUID, BlockDisplay> scarDisplays = new HashMap<>();
     private int scarTicks;
     private File file;
     private YamlConfiguration data;
@@ -98,7 +113,13 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
         getCommand("cicatrice").setExecutor(this);
 
         // Pendant un Noir, la Cicatrice luit à son emplacement (particules suivant le joueur, 4 fois par seconde)
-        Bukkit.getScheduler().runTaskTimer(this, this::scarTick, 20L, 5L);
+        Bukkit.getScheduler().runTaskTimer(this, this::scarTick, 20L, 2L);
+        // supprime d'éventuelles marques restées après un crash
+        for (World w : Bukkit.getWorlds()) {
+            for (BlockDisplay d : w.getEntitiesByClass(BlockDisplay.class)) {
+                if (d.getScoreboardTags().contains(SCAR_TAG)) d.remove();
+            }
+        }
 
         // Au cas où le plugin est rechargé alors que des joueurs sont connectés
         for (Player p : Bukkit.getOnlinePlayers()) {
@@ -109,6 +130,7 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
 
     @Override
     public void onDisable() {
+        clearDisplays();
         for (UUID id : glowing) {
             Player p = Bukkit.getPlayer(id);
             if (p != null) p.removePotionEffect(PotionEffectType.GLOWING);
@@ -238,6 +260,7 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
         if (getConfig().getBoolean("hide-join-messages", true)) e.setQuitMessage(null);
         pending.remove(e.getPlayer().getUniqueId());
         glowing.remove(e.getPlayer().getUniqueId());
+        dropDisplay(e.getPlayer().getUniqueId());
     }
 
     /** Un joueur sans identité ne peut pas bouger tant qu'il n'a pas choisi son nom. */
@@ -282,6 +305,35 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
         }
     }
 
+    private BlockDisplay spawnMark(Location at, int shape) {
+        final float[] sz = SIZES[shape];
+        final Color glow = COLORS[shape];
+        return at.getWorld().spawn(at, BlockDisplay.class, d -> {
+            d.setBlock(Material.AMETHYST_BLOCK.createBlockData());
+            d.setTransformation(new Transformation(
+                    new Vector3f(-sz[0] / 2, -sz[1] / 2, -sz[2] / 2), new AxisAngle4f(0f, 0f, 0f, 1f),
+                    new Vector3f(sz[0], sz[1], sz[2]), new AxisAngle4f(0f, 0f, 0f, 1f)));
+            d.setBrightness(new Display.Brightness(15, 15));
+            d.setGlowing(true);
+            d.setGlowColorOverride(glow);
+            d.setPersistent(false);
+            d.addScoreboardTag(SCAR_TAG);
+            d.setTeleportDuration(2);
+        });
+    }
+
+    private void dropDisplay(UUID id) {
+        BlockDisplay d = scarDisplays.remove(id);
+        if (d != null && d.isValid()) d.remove();
+    }
+
+    private void clearDisplays() {
+        for (BlockDisplay d : scarDisplays.values()) {
+            if (d.isValid()) d.remove();
+        }
+        scarDisplays.clear();
+    }
+
     /** La Cicatrice luit uniquement à son emplacement, pendant les Noirs (pas de contour sur tout le corps). */
     private void scarTick() {
         boolean any = false;
@@ -291,17 +343,26 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
                 break;
             }
         }
-        if (!any) return;
+        if (!any) {
+            if (!scarDisplays.isEmpty()) clearDisplays();
+            return;
+        }
         scarTicks++;
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            if (!has(id) || !isNoir(p.getWorld())) continue;
-            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || p.isSwimming() || p.isGliding()) continue;
+            if (!has(id) || !isNoir(p.getWorld())) {
+                dropDisplay(id);
+                continue;
+            }
+            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || p.isSwimming() || p.isGliding()) {
+                dropDisplay(id);
+                continue;
+            }
             String scar = scar(id);
             if (scar == null) continue;
             // rappel : où luit ta Cicatrice (toutes les ~2,5 s)
-            if (scarTicks % 10 == 0 && getConfig().getBoolean("scar-reminder", true)) {
+            if (scarTicks % 25 == 0 && getConfig().getBoolean("scar-reminder", true)) {
                 p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent("§5✦ §dTa Cicatrice luit §7: " + scar));
             }
 
@@ -333,6 +394,22 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
                     base.getY() + y,
                     base.getZ() + dir.getZ() * f - dir.getX() * l);
 
+            at.setYaw(base.getYaw());
+            at.setPitch(0f);
+
+            // la Cicatrice : une petite marque lumineuse avec contour "glowing", posée sur le corps et qui suit le joueur
+            BlockDisplay disp = scarDisplays.get(id);
+            if (disp == null || !disp.isValid() || !disp.getWorld().equals(at.getWorld())) {
+                if (disp != null && disp.isValid()) disp.remove();
+                disp = spawnMark(at, shape);
+                scarDisplays.put(id, disp);
+                if (!getConfig().getBoolean("own-scar-visible", true)) p.hideEntity(this, disp);
+            } else {
+                disp.teleport(at);
+            }
+
+            // quelques particules en plus (toutes les ~6 ticks)
+            if (scarTicks % 3 != 0) continue;
             Particle.DustOptions dust = new Particle.DustOptions(COLORS[shape], 1.4f);
             boolean sparkle = rnd.nextInt(3) == 0;
             for (Player v : p.getWorld().getPlayers()) {
