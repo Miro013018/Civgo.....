@@ -78,6 +78,7 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
             Color.fromRGB(255, 140, 230), Color.fromRGB(150, 90, 230), Color.fromRGB(110, 50, 170)
     };
 
+    private int scarTicks;
     private File file;
     private YamlConfiguration data;
     private Team team;
@@ -291,6 +292,7 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
             }
         }
         if (!any) return;
+        scarTicks++;
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             UUID id = p.getUniqueId();
@@ -298,6 +300,10 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
             if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || p.isSwimming() || p.isGliding()) continue;
             String scar = scar(id);
             if (scar == null) continue;
+            // rappel : où luit ta Cicatrice (toutes les ~2,5 s)
+            if (scarTicks % 10 == 0 && getConfig().getBoolean("scar-reminder", true)) {
+                p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent("§5✦ §dTa Cicatrice luit §7: " + scar));
+            }
 
             int part = -1;
             for (int i = 0; i < PARTS.length; i++) {
@@ -327,13 +333,17 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
                     base.getY() + y,
                     base.getZ() + dir.getZ() * f - dir.getX() * l);
 
-            Particle.DustOptions dust = new Particle.DustOptions(COLORS[shape], 1.1f);
+            Particle.DustOptions dust = new Particle.DustOptions(COLORS[shape], 1.4f);
             boolean sparkle = rnd.nextInt(3) == 0;
             for (Player v : p.getWorld().getPlayers()) {
-                // le porteur ne voit pas sa propre Cicatrice (elle lui gênerait la vue)
-                if (v.equals(p) || v.getLocation().distanceSquared(at) > 48 * 48) continue;
-                v.spawnParticle(Particle.DUST, at, 2, 0.03, 0.03, 0.03, 0, dust);
-                if (sparkle) v.spawnParticle(Particle.GLOW, at, 1, 0.05, 0.05, 0.05, 0.0);
+                // le porteur voit aussi sa propre Cicatrice (en 3e personne, touche F5), sauf si own-scar-visible: false
+                if ((v.equals(p) && !getConfig().getBoolean("own-scar-visible", true))
+                        || v.getLocation().distanceSquared(at) > 48 * 48) continue;
+                v.spawnParticle(Particle.DUST, at, 3, 0.03, 0.03, 0.03, 0, dust);
+                if (sparkle) {
+                    v.spawnParticle(Particle.GLOW, at, 1, 0.05, 0.05, 0.05, 0.0);
+                    v.spawnParticle(Particle.END_ROD, at, 1, 0.04, 0.04, 0.04, 0.0);
+                }
             }
         }
     }
