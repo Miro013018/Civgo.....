@@ -4,6 +4,10 @@ import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Color;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.Particle;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -27,6 +31,7 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
+import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
@@ -54,6 +59,25 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
             "sur l'avant-bras droit", "sur le torse", "au dos de la main gauche", "au dos de la main droite"
     };
 
+    // emplacement de chaque Cicatrice sur le corps : {devant, gauche, hauteur} en blocs depuis les pieds
+    private static final double[][] OFFS = {
+            {0.27, 0.12, 1.50},   // sur la joue gauche
+            {0.27, -0.12, 1.50},  // sur la joue droite
+            {0.27, 0.00, 1.74},   // en travers du front
+            {0.14, 0.00, 1.40},   // le long du cou
+            {0.00, 0.40, 1.42},   // sur l'épaule gauche
+            {0.00, -0.40, 1.42},  // sur l'épaule droite
+            {0.00, 0.42, 1.02},   // sur l'avant-bras gauche
+            {0.00, -0.42, 1.02},  // sur l'avant-bras droit
+            {0.14, 0.00, 1.15},   // sur le torse
+            {0.00, 0.42, 0.80},   // au dos de la main gauche
+            {0.00, -0.42, 0.80}   // au dos de la main droite
+    };
+    private static final Color[] COLORS = {
+            Color.fromRGB(170, 90, 255), Color.fromRGB(225, 200, 255), Color.fromRGB(190, 225, 255),
+            Color.fromRGB(255, 140, 230), Color.fromRGB(150, 90, 230), Color.fromRGB(110, 50, 170)
+    };
+
     private File file;
     private YamlConfiguration data;
     private Team team;
@@ -72,8 +96,8 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
         getCommand("identite").setExecutor(this);
         getCommand("cicatrice").setExecutor(this);
 
-        // Timer espacé (5 s) : la Cicatrice brille tant qu'un Noir est actif
-        Bukkit.getScheduler().runTaskTimer(this, this::glowTick, 100L, 100L);
+        // Pendant un Noir, la Cicatrice luit à son emplacement (particules suivant le joueur, 4 fois par seconde)
+        Bukkit.getScheduler().runTaskTimer(this, this::scarTick, 20L, 5L);
 
         // Au cas où le plugin est rechargé alors que des joueurs sont connectés
         for (Player p : Bukkit.getOnlinePlayers()) {
@@ -257,14 +281,59 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
         }
     }
 
-    private void glowTick() {
+    /** La Cicatrice luit uniquement à son emplacement, pendant les Noirs (pas de contour sur tout le corps). */
+    private void scarTick() {
+        boolean any = false;
+        for (World w : Bukkit.getWorlds()) {
+            if (isNoir(w)) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) return;
+
         for (Player p : Bukkit.getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            if (has(id) && isNoir(p.getWorld())) {
-                p.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 160, 0, true, false, false));
-                glowing.add(id);
-            } else if (glowing.remove(id)) {
-                p.removePotionEffect(PotionEffectType.GLOWING);
+            if (!has(id) || !isNoir(p.getWorld())) continue;
+            if (p.getGameMode() == GameMode.SPECTATOR || p.isInvisible() || p.isSwimming() || p.isGliding()) continue;
+            String scar = scar(id);
+            if (scar == null) continue;
+
+            int part = -1;
+            for (int i = 0; i < PARTS.length; i++) {
+                if (scar.endsWith(PARTS[i])) {
+                    part = i;
+                    break;
+                }
+            }
+            if (part < 0) continue;
+            int shape = 0;
+            for (int i = 0; i < SHAPES.length; i++) {
+                if (scar.startsWith(SHAPES[i])) {
+                    shape = i;
+                    break;
+                }
+            }
+
+            Location base = p.getLocation();
+            Vector dir = base.getDirection();
+            dir.setY(0);
+            if (dir.lengthSquared() < 1.0E-6) continue;
+            dir.normalize();
+            double f = OFFS[part][0], l = OFFS[part][1], y = OFFS[part][2];
+            if (p.isSneaking()) y *= 0.87;
+            Location at = new Location(base.getWorld(),
+                    base.getX() + dir.getX() * f + dir.getZ() * l,
+                    base.getY() + y,
+                    base.getZ() + dir.getZ() * f - dir.getX() * l);
+
+            Particle.DustOptions dust = new Particle.DustOptions(COLORS[shape], 1.1f);
+            boolean sparkle = rnd.nextInt(3) == 0;
+            for (Player v : p.getWorld().getPlayers()) {
+                // le porteur ne voit pas sa propre Cicatrice (elle lui gênerait la vue)
+                if (v.equals(p) || v.getLocation().distanceSquared(at) > 48 * 48) continue;
+                v.spawnParticle(Particle.DUST, at, 2, 0.03, 0.03, 0.03, 0, dust);
+                if (sparkle) v.spawnParticle(Particle.GLOW, at, 1, 0.05, 0.05, 0.05, 0.0);
             }
         }
     }
