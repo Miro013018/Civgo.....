@@ -1,2 +1,17 @@
 # CivGo Boutique
 shift-multiplier: 5     # Shift + clic = acheter cet objet N fois d'un coup
+
+# Stocks limités : le stock revient petit à petit
+restock:
+  interval-minutes: 30      # toutes les X minutes...
+  default-amount: 2         # ...chaque objet récupère X exemplaires (jusqu'à son stock max)
+
+# Prix dynamiques : prix affiché = prix de base x demande x marché x rareté x Noir
+price:
+  demand-step: 0.04                   # +4 % par exemplaire acheté
+  demand-max: 2.0                     # la demande ne dépasse pas x2
+  demand-decay-per-minute: 0.97       # la demande retombe doucement vers 1 (plus proche de 1 = plus lent)
+  fluctuation-interval-minutes: 30    # le marché bouge toutes les X minutes
+  fluctuation: 0.08                   # de +/- 8 % à chaque fois
+  scarcity-strength: 0.5              # jusqu'à +50 % quand le stock est presque vide
+  noir-multiplier: 1.25               # pendant un Noir, tout coûte 25 % plus cher
