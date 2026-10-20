@@ -7,6 +7,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.Chest;
 import org.bukkit.block.DoubleChest;
@@ -31,6 +32,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -41,6 +43,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 
 /**
@@ -51,7 +54,12 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
 
     private static class ShopItem {
         final ItemStack item;
-        long price;
+        long price;            // prix de base
+        int max = -1;          // stock maximum (-1 = illimité)
+        int stock = -1;        // stock actuel
+        int regen = -1;        // exemplaires rendus à chaque réassort (-1 = valeur du config)
+        double demand = 1.0;   // monte quand on achète, retombe avec le temps
+        double fluct = 1.0;    // variation du marché
 
         ShopItem(ItemStack item, long price) {
             this.item = item;
@@ -73,6 +81,8 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
     private final Set<String> chests = new HashSet<>();
     private File file;
     private NamespacedKey eclatKey;
+    private final Random rnd = new Random();
+    private int restockLeft = 30, fluctLeft = 30, minutes = 0;
 
     @Override
     public void onEnable() {
@@ -83,7 +93,15 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
         if (ec != null) eclatKey = new NamespacedKey(ec, "eclat");
         Bukkit.getPluginManager().registerEvents(this, this);
         getCommand("boutique").setExecutor(this);
+        restockLeft = Math.max(1, getConfig().getInt("restock.interval-minutes", 30));
+        fluctLeft = Math.max(1, getConfig().getInt("price.fluctuation-interval-minutes", 30));
+        Bukkit.getScheduler().runTaskTimer(this, this::minuteTick, 1200L, 1200L);
         if (econ() == null) getLogger().warning("Aucune économie Vault trouvée : installe CivGoEclats pour payer en Éclats.");
+    }
+
+    @Override
+    public void onDisable() {
+        save();
     }
 
     // ------------------------------------------------------------ données
@@ -96,7 +114,14 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
             for (String k : sec.getKeys(false)) {
                 ItemStack it = sec.getItemStack(k + ".item");
                 long price = sec.getLong(k + ".price", 1);
-                if (it != null) items.add(new ShopItem(it, price));
+                if (it == null) continue;
+                ShopItem si = new ShopItem(it, price);
+                si.max = sec.getInt(k + ".max", -1);
+                si.stock = sec.getInt(k + ".stock", si.max);
+                si.regen = sec.getInt(k + ".regen", -1);
+                si.demand = sec.getDouble(k + ".demand", 1.0);
+                si.fluct = sec.getDouble(k + ".fluct", 1.0);
+                items.add(si);
             }
         }
     }
@@ -108,6 +133,11 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
             String k = String.format("items.%03d", i + 1);
             y.set(k + ".item", items.get(i).item);
             y.set(k + ".price", items.get(i).price);
+            y.set(k + ".max", items.get(i).max);
+            y.set(k + ".stock", items.get(i).stock);
+            y.set(k + ".regen", items.get(i).regen);
+            y.set(k + ".demand", items.get(i).demand);
+            y.set(k + ".fluct", items.get(i).fluct);
         }
         try {
             getDataFolder().mkdirs();
@@ -174,8 +204,61 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
         return n + (n == 1 ? " Éclat" : " Éclats");
     }
 
-    private void buy(Player p, ShopItem si, int times) {
-        long total = si.price * times;
+    private boolean noirActive() {
+        for (World w : Bukkit.getWorlds()) {
+            for (MetadataValue v : w.getMetadata("civgo_noir")) {
+                if (v.asBoolean()) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Prix actuel = base x demande x marché x rareté x Noir. */
+    private long currentPrice(ShopItem si) {
+        double p = si.price * si.demand * si.fluct;
+        if (si.max > 0) {
+            double ratio = 1.0 - (double) Math.max(0, si.stock) / si.max;
+            p *= 1.0 + getConfig().getDouble("price.scarcity-strength", 0.5) * ratio;
+        }
+        if (noirActive()) p *= getConfig().getDouble("price.noir-multiplier", 1.25);
+        return Math.max(1, Math.round(p));
+    }
+
+    private void minuteTick() {
+        minutes++;
+        double decay = getConfig().getDouble("price.demand-decay-per-minute", 0.97);
+        for (ShopItem si : items) {
+            si.demand = 1.0 + (si.demand - 1.0) * decay;
+        }
+        if (--restockLeft <= 0) {
+            restockLeft = Math.max(1, getConfig().getInt("restock.interval-minutes", 30));
+            int def = getConfig().getInt("restock.default-amount", 2);
+            for (ShopItem si : items) {
+                if (si.max >= 0 && si.stock < si.max) {
+                    si.stock = Math.min(si.max, si.stock + (si.regen >= 0 ? si.regen : def));
+                }
+            }
+        }
+        if (--fluctLeft <= 0) {
+            fluctLeft = Math.max(1, getConfig().getInt("price.fluctuation-interval-minutes", 30));
+            double f = getConfig().getDouble("price.fluctuation", 0.08);
+            for (ShopItem si : items) {
+                double nf = si.fluct + (1.0 - si.fluct) * 0.15 + (rnd.nextDouble() * 2 - 1) * f;
+                si.fluct = Math.max(0.7, Math.min(1.6, nf));
+            }
+        }
+        if (minutes % 5 == 0) save();
+    }
+
+    private void buy(Player p, ShopItem si, int wanted) {
+        if (si.max >= 0 && si.stock <= 0) {
+            p.sendMessage(ChatColor.RED + "Cet objet est épuisé. Il reviendra petit à petit.");
+            p.playSound(p.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+            return;
+        }
+        int times = si.max >= 0 ? Math.min(wanted, si.stock) : wanted;
+        long unit = currentPrice(si);
+        long total = unit * times;
         int pocket = pocket(p);
         double bank = bank(p);
         if (pocket + bank < total) {
@@ -205,6 +288,10 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
                 p.getWorld().dropItemNaturally(p.getLocation(), over);
             }
         }
+        if (si.max >= 0) si.stock -= times;
+        si.demand = Math.min(getConfig().getDouble("price.demand-max", 2.0),
+                si.demand + getConfig().getDouble("price.demand-step", 0.04) * times);
+        save();
         p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1f, 1.2f);
         p.sendMessage(ChatColor.LIGHT_PURPLE + "Achat : " + name(si.item) + ChatColor.LIGHT_PURPLE + " x"
                 + (si.item.getAmount() * times) + " pour " + eclats(total) + ".");
@@ -224,7 +311,18 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
         if (m != null) {
             List<String> lore = m.hasLore() ? new ArrayList<>(m.getLore()) : new ArrayList<>();
             lore.add("");
-            lore.add(ChatColor.LIGHT_PURPLE + "Prix : " + ChatColor.WHITE + eclats(si.price));
+            long cur = currentPrice(si);
+            long pct = Math.round((cur / (double) si.price - 1.0) * 100.0);
+            String trend = pct > 0 ? ChatColor.RED + " ▲ +" + pct + " %" : pct < 0 ? ChatColor.GREEN + " ▼ " + pct + " %" : ChatColor.GRAY + " =";
+            lore.add(ChatColor.LIGHT_PURPLE + "Prix : " + ChatColor.WHITE + eclats(cur) + trend);
+            if (si.max < 0) {
+                lore.add(ChatColor.GRAY + "Stock : illimité");
+            } else if (si.stock <= 0) {
+                lore.add(ChatColor.RED + "ÉPUISÉ " + ChatColor.GRAY + "(réassort dans ~" + restockLeft + " min)");
+            } else {
+                lore.add(ChatColor.GRAY + "Stock : " + ChatColor.WHITE + si.stock + ChatColor.GRAY + " / " + si.max
+                        + (si.stock < si.max ? " (réassort dans ~" + restockLeft + " min)" : ""));
+            }
             lore.add(ChatColor.GRAY + "Clic gauche : acheter");
             lore.add(ChatColor.GRAY + "Shift + clic : acheter x" + getConfig().getInt("shift-multiplier", 5));
             m.setLore(lore);
@@ -249,6 +347,13 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
                         ChatColor.DARK_GRAY + "Les Éclats en poche sont dépensés d'abord.")));
     }
 
+    private void fillPage(Inventory inv, int page) {
+        for (int s = 0; s < 45; s++) {
+            int idx = page * 45 + s;
+            inv.setItem(s, idx < items.size() ? display(items.get(idx)) : null);
+        }
+    }
+
     private void open(Player p, int page) {
         int pages = Math.max(1, (items.size() + 44) / 45);
         page = Math.max(0, Math.min(page, pages - 1));
@@ -256,11 +361,7 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
         h.page = page;
         Inventory inv = Bukkit.createInventory(h, 54, "§5✦ §dBoutique des Éclats §8(" + (page + 1) + "/" + pages + ")");
         h.inv = inv;
-        for (int s = 0; s < 45; s++) {
-            int idx = page * 45 + s;
-            if (idx >= items.size()) break;
-            inv.setItem(s, display(items.get(idx)));
-        }
+        fillPage(inv, page);
         ItemStack glass = icon(Material.GRAY_STAINED_GLASS_PANE, " ", null);
         for (int s = 45; s < 54; s++) inv.setItem(s, glass);
         if (page > 0) inv.setItem(45, icon(Material.ARROW, ChatColor.GRAY + "Page précédente", null));
@@ -290,6 +391,7 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
         if (idx >= items.size()) return;
         int times = e.isShiftClick() ? Math.max(1, getConfig().getInt("shift-multiplier", 5)) : 1;
         buy(p, items.get(idx), times);
+        fillPage(top, h.page);
         fillInfo(p, top);
     }
 
@@ -366,15 +468,22 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
                     return true;
                 }
                 if (a.length < 2) {
-                    s.sendMessage(ChatColor.RED + "Usage : /boutique ajouter <prix en Éclats>");
+                    s.sendMessage(ChatColor.RED + "Usage : /boutique ajouter <prix en Éclats> [stock]");
                     return true;
                 }
                 long price = parse(s, a[1]);
                 if (price < 1) return true;
-                items.add(new ShopItem(hand.clone(), price));
+                ShopItem added = new ShopItem(hand.clone(), price);
+                if (a.length > 2) {
+                    long st = parse(s, a[2]);
+                    if (st < 1) return true;
+                    added.max = (int) st;
+                    added.stock = (int) st;
+                }
+                items.add(added);
                 save();
                 s.sendMessage(ChatColor.LIGHT_PURPLE + "Ajouté (n°" + items.size() + ") : " + name(hand) + ChatColor.LIGHT_PURPLE
-                        + " x" + hand.getAmount() + " pour " + eclats(price) + ".");
+                        + " x" + hand.getAmount() + " pour " + eclats(price) + (added.max >= 0 ? ", stock " + added.max : ", stock illimité") + ".");
             }
             case "prix" -> {
                 if (a.length < 3) {
@@ -414,17 +523,75 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
                 for (int i = 0; i < items.size(); i++) {
                     ShopItem si = items.get(i);
                     s.sendMessage(ChatColor.LIGHT_PURPLE + "" + (i + 1) + ". " + name(si.item) + ChatColor.GRAY + " x" + si.item.getAmount()
-                            + " - " + ChatColor.WHITE + eclats(si.price));
+                            + " - base " + ChatColor.WHITE + eclats(si.price) + ChatColor.GRAY + ", actuel " + ChatColor.WHITE + eclats(currentPrice(si))
+                            + ChatColor.GRAY + ", stock " + (si.max < 0 ? "illimité" : si.stock + "/" + si.max
+                            + (si.regen >= 0 ? " (+" + si.regen + ")" : "")));
                 }
+            }
+            case "stock" -> {
+                if (a.length < 3) {
+                    s.sendMessage(ChatColor.RED + "Usage : /boutique stock <n°> <max|illimite> [exemplaires rendus à chaque réassort]");
+                    return true;
+                }
+                int idx = (int) parse(s, a[1]) - 1;
+                if (idx < 0 || idx >= items.size()) {
+                    s.sendMessage(ChatColor.RED + "Numéro inconnu (voir /boutique liste).");
+                    return true;
+                }
+                ShopItem si = items.get(idx);
+                if (a[2].toLowerCase().startsWith("illimit")) {
+                    si.max = -1;
+                    si.stock = -1;
+                } else {
+                    long mx = parse(s, a[2]);
+                    if (mx < 1) return true;
+                    si.max = (int) mx;
+                    si.stock = (int) mx;
+                }
+                if (a.length > 3) {
+                    long rg = parse(s, a[3]);
+                    if (rg < 1) return true;
+                    si.regen = (int) rg;
+                }
+                save();
+                s.sendMessage(ChatColor.LIGHT_PURPLE + "Stock de " + name(si.item) + ChatColor.LIGHT_PURPLE + " : "
+                        + (si.max < 0 ? "illimité" : si.max + (si.regen >= 0 ? " (+" + si.regen + " par réassort)" : "")) + ".");
+            }
+            case "marche" -> {
+                if (a.length < 3) {
+                    s.sendMessage(ChatColor.RED + "Usage : /boutique marche <n°|tous> <multiplicateur>  (ex : 1.5 = +50 %, 0.7 = -30 %)");
+                    return true;
+                }
+                double mult;
+                try {
+                    mult = Math.max(0.3, Math.min(3.0, Double.parseDouble(a[2].replace(',', '.'))));
+                } catch (NumberFormatException ex) {
+                    s.sendMessage(ChatColor.RED + "Multiplicateur invalide.");
+                    return true;
+                }
+                if (a[1].equalsIgnoreCase("tous")) {
+                    for (ShopItem si : items) si.fluct = mult;
+                } else {
+                    int idx = (int) parse(s, a[1]) - 1;
+                    if (idx < 0 || idx >= items.size()) {
+                        s.sendMessage(ChatColor.RED + "Numéro inconnu (voir /boutique liste).");
+                        return true;
+                    }
+                    items.get(idx).fluct = mult;
+                }
+                save();
+                s.sendMessage(ChatColor.LIGHT_PURPLE + "Le marché est à x" + mult + " (il revient ensuite doucement à la normale).");
             }
             case "ouvrir" -> {
                 if (s instanceof Player p) open(p, 0);
             }
             default -> {
                 s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique coffre" + ChatColor.GRAY + " : (dé)marque le bloc regardé comme coffre boutique");
-                s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique ajouter <prix>" + ChatColor.GRAY + " : vend l'objet que tu tiens");
+                s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique ajouter <prix> [stock]" + ChatColor.GRAY + " : vend l'objet que tu tiens");
                 s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique prix <n°> <prix>" + ChatColor.GRAY + " : change un prix");
                 s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique retirer <n°>" + ChatColor.GRAY + " : retire un objet");
+                s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique stock <n°> <max|illimite> [réassort]" + ChatColor.GRAY + " : stock limité");
+                s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique marche <n°|tous> <x>" + ChatColor.GRAY + " : choc de marché (prix)");
                 s.sendMessage(ChatColor.LIGHT_PURPLE + "/boutique liste" + ChatColor.GRAY + " | " + ChatColor.LIGHT_PURPLE + "/boutique ouvrir");
             }
         }
@@ -445,7 +612,7 @@ public class CivGoBoutique extends JavaPlugin implements Listener, TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender s, Command c, String alias, String[] a) {
         if (a.length == 1 && s.hasPermission("civgo.boutique.admin")) {
-            return List.of("coffre", "ajouter", "prix", "retirer", "liste", "ouvrir");
+            return List.of("coffre", "ajouter", "prix", "retirer", "liste", "ouvrir", "stock", "marche");
         }
         return List.of();
     }
