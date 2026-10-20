@@ -1,0 +1,16 @@
+name: CivGoBoutique
+version: 1.0.0
+main: fr.civgo.boutique.CivGoBoutique
+api-version: '1.21'
+author: CivGo
+depend: [Vault]
+softdepend: [CivGoEclats]
+description: Boutique à Éclats ouverte en cliquant sur un coffre spécial, avec tes objets personnalisés.
+commands:
+  boutique:
+    description: Gère la boutique
+    usage: /boutique <coffre|ajouter|prix|retirer|liste|ouvrir>
+permissions:
+  civgo.boutique.admin:
+    description: Gérer la boutique (coffres, objets, prix)
+    default: op
