@@ -47,6 +47,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.PotionMeta;
+import org.bukkit.inventory.meta.components.EquippableComponent;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.metadata.MetadataValue;
 import org.bukkit.persistence.PersistentDataType;
@@ -119,7 +120,7 @@ public class CivGoObjets extends JavaPlugin implements Listener, TabExecutor {
         add("arc_noirs", Material.BOW, "§5", "Arc des Noirs",
                 "§7Tire des Éclats : +70 % de dégâts, éclats lumineux à l'impact.",
                 "§7Révèle la Cicatrice du joueur touché pendant 8 s.");
-        add("casque_lunaire", Material.NETHERITE_HELMET, "§f", "Casque Lunaire",
+        add("casque_lunaire", Material.DIAMOND_HELMET, "§f", "Casque Lunaire",
                 "§7Annule l'obscurité des Noirs et du Cratère.",
                 "§7Pendant un Noir : vision nocturne, -10 % de dégâts des monstres.");
         add("bouclier_chute", Material.SHIELD, "§d", "Bouclier de la Chute",
@@ -146,6 +147,13 @@ public class CivGoObjets extends JavaPlugin implements Listener, TabExecutor {
         m.setDisplayName(d.color() + d.name());
         m.setLore(d.lore());
         if (m instanceof PotionMeta pm) pm.setBasePotionType(PotionType.NIGHT_VISION);
+        if (id.equals("casque_lunaire")) {
+            // apparence portée propre au casque (pack de ressources), ce n'est pas un casque en netherite
+            EquippableComponent eq = m.getEquippable();
+            eq.setSlot(EquipmentSlot.HEAD);
+            eq.setModel(NamespacedKey.fromString("civgo:casque_lunaire"));
+            m.setEquippable(eq);
+        }
         it.setItemMeta(m);
         return it;
     }
