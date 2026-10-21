@@ -33,8 +33,7 @@ jobs:
 
             echo "=== Compilation de $d"
             count=$((count + 1))
-
-            if (cd "$d" && mvn -B clean package); then
+            if (cd "$d" && mvn -B -ntp package); then
               echo "OK $d"
             else
               echo "ECHEC $d"
