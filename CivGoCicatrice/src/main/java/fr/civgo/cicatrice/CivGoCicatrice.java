@@ -28,6 +28,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.MetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
@@ -93,6 +94,7 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
             {0.10f, 0.10f, 0.04f}, {0.17f, 0.05f, 0.04f}, {0.06f, 0.17f, 0.04f}
     };
     private final Map<UUID, BlockDisplay> scarDisplays = new HashMap<>();
+    private final Map<UUID, Long> revealUntil = new HashMap<>();
     private int scarTicks;
     private File file;
     private YamlConfiguration data;
@@ -305,6 +307,24 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
         }
     }
 
+    private boolean isRevealed(UUID id) {
+        Long t = revealUntil.get(id);
+        if (t == null) return false;
+        if (t < System.currentTimeMillis()) {
+            revealUntil.remove(id);
+            return false;
+        }
+        return true;
+    }
+
+    /** L'Amulette de Cicatrice (tenue en main secondaire) cache la Cicatrice. */
+    private boolean hasAmulet(Player p) {
+        ItemStack off = p.getInventory().getItemInOffHand();
+        if (off == null || !off.hasItemMeta() || !off.getItemMeta().hasItemModel()) return false;
+        org.bukkit.NamespacedKey k = off.getItemMeta().getItemModel();
+        return k != null && k.getKey().equals("amulette_cicatrice");
+    }
+
     private BlockDisplay spawnMark(Location at, int shape) {
         final float[] sz = SIZES[shape];
         final Color glow = COLORS[shape];
@@ -343,6 +363,10 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
                 break;
             }
         }
+        if (!any && !revealUntil.isEmpty()) {
+            revealUntil.values().removeIf(t -> t < System.currentTimeMillis());
+            any = !revealUntil.isEmpty();
+        }
         if (!any) {
             if (!scarDisplays.isEmpty()) clearDisplays();
             return;
@@ -351,7 +375,8 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
 
         for (Player p : Bukkit.getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            if (!has(id) || !isNoir(p.getWorld())) {
+            boolean rev = isRevealed(id);
+            if (!has(id) || !(isNoir(p.getWorld()) || rev) || (!rev && hasAmulet(p))) {
                 dropDisplay(id);
                 continue;
             }
@@ -454,6 +479,26 @@ public class CivGoCicatrice extends JavaPlugin implements Listener, TabExecutor 
     }
 
     private boolean cicatriceCommand(CommandSender s, String[] a) {
+        if (a.length >= 2 && a[0].equalsIgnoreCase("reveal")) {
+            if (!s.hasPermission("civgo.cicatrice.admin")) {
+                s.sendMessage(ChatColor.RED + "Tu n'as pas la permission.");
+                return true;
+            }
+            Player t = Bukkit.getPlayerExact(a[1]);
+            if (t == null) {
+                s.sendMessage(ChatColor.RED + "Joueur introuvable.");
+                return true;
+            }
+            int secs = 8;
+            if (a.length > 2) {
+                try {
+                    secs = Math.max(1, Math.min(60, Integer.parseInt(a[2])));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            revealUntil.put(t.getUniqueId(), System.currentTimeMillis() + secs * 1000L);
+            return true;
+        }
         UUID id;
         String owner;
         if (a.length > 0 && s.hasPermission("civgo.cicatrice.admin")) {
