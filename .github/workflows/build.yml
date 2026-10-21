@@ -1,3 +1,4 @@
+
 name: Compiler les plugins CivGo
 
 on:
@@ -7,27 +8,53 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
+          cache: maven
+
       - name: Fichiers du dépôt
         run: find . -not -path './.git/*' -type f | sort
+
       - name: Compiler chaque plugin
+        shell: bash
         run: |
+          set -uo pipefail
           fail=0
-          for p in $(find . -name pom.xml -not -path './.git/*' | sort); do
+          count=0
+
+          while IFS= read -r p; do
             d=$(dirname "$p")
+
             echo "=== Compilation de $d"
-            if (cd "$d" && mvn -B -q clean package); then echo "OK $d"; else echo "ECHEC $d"; fail=1; fi
-          done
-          echo "=== Jars créés :"
-          find . -path '*/target/*' -name 'CivGo*.jar'
-          exit $fail
+            count=$((count + 1))
+
+            if (cd "$d" && mvn -B clean package); then
+              echo "OK $d"
+            else
+              echo "ECHEC $d"
+              fail=1
+            fi
+          done < <(find . -name pom.xml -not -path './.git/*' -type f | sort)
+
+          if [ "$count" -eq 0 ]; then
+            echo "ERREUR : aucun pom.xml trouvé."
+            exit 1
+          fi
+
+          echo "=== JAR CivGo créés :"
+          find . -type f -path '*/target/*' -name 'CivGo*.jar' -print
+
+          exit "$fail"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: CivGo-jars
           path: '**/target/CivGo*.jar'
+          if-no-files-found: warn
