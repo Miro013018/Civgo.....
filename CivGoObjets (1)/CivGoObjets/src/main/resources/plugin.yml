@@ -1,0 +1,16 @@
+name: CivGoObjets
+version: 1.0.0
+main: fr.civgo.objets.CivGoObjets
+api-version: '1.21'
+author: CivGo
+depend: [Vault]
+softdepend: [CivGoNoirs, CivGoCicatrice, CivGoEclats, CivGoBoutique]
+description: Pouvoirs des objets CivGo (Épée de Lune, Arc des Noirs, Pioche d'Éclat, Casque, Bouclier, Lanterne, Boussole...).
+commands:
+  objets:
+    description: Donne les objets CivGo
+    usage: /objets <liste|donner <objet> [joueur]>
+permissions:
+  civgo.objets.admin:
+    description: Donner les objets CivGo
+    default: op

@@ -1,0 +1,21 @@
+# CivGo Objets - réglages des pouvoirs
+
+epee:
+  monster-multiplier: 1.25     # dégâts contre les monstres
+  noir-multiplier: 1.25        # dégâts supplémentaires pendant un Noir (+ vol de vie)
+  wave-damage: 8               # dégâts de l'Onde lunaire (clic droit)
+  wave-radius: 5
+  wave-cooldown-seconds: 20
+
+arc:
+  damage-multiplier: 1.7       # dégâts de l'Arc des Noirs par rapport à un arc normal
+  reveal-seconds: 8            # durée pendant laquelle la Cicatrice d'un joueur touché est révélée
+
+pioche:
+  blocks-per-eclat: 150        # 1 Éclat tous les X blocs minés (ajouté au solde Vault)
+
+casque:
+  damage-reduction-noir: 0.10  # -10 % de dégâts des monstres pendant un Noir
+
+bouclier:
+  protect-all-sides: true
